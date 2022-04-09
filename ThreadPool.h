@@ -32,7 +32,7 @@ public:
             : stop(false) {
         for (size_t i = 0; i < thread_amount; ++i) {
             workers.emplace_back(
-                    [this, i] {
+                    [this] {
                         while (true) {
                             std::function<void()> task;
                             {   // avoid two threads try to take the same work at the same time
@@ -93,7 +93,7 @@ public:
     }
 
 
-    ~ThreadPool() {
+    void shutDown() {
         {
             std::unique_lock<std::mutex> lock(queue_mutex);
             stop = true;

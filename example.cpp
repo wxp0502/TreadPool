@@ -1,35 +1,37 @@
 #include <iostream>
-
+#include <random>
 
 #include "ThreadPool.h"
 
-int add(int a, int b) {
-    std::cout << "a == " << a << ", b == " << b << std::endl;
-    std::cout << "a + b == " << a + b << std::endl;
+void simulate_hard_computation() {
+    std::this_thread::sleep_for(std::chrono::milliseconds(1000 + rand() % 2000));
+}
+
+void add(int a, int b) {
+    simulate_hard_computation();
+    std::cout << a << " + " << b << " == " << a + b << std::endl;
+}
+
+int add_return(int a, int b) {
+    simulate_hard_computation();
+    std::cout << a << " + " << b << " == " << a + b << std::endl;
     return a + b;
 }
 
 int main() {
 
     ThreadPool pool(4);
-    std::vector<std::future<int> > results;
 
-    results.reserve(1);
     for (int i = 0; i < 8; ++i) {
-//        results.emplace_back(pool.enqueue(add, i, i + 1));
-        results.emplace_back(
-                pool.enqueue([i] {
-                    std::cout << "hello " << i << std::endl;
-                    std::this_thread::sleep_for(std::chrono::seconds(1));
-                    std::cout << "world " << i << std::endl;
-                    return i * i;
-                })
-        );
+        for (int j = i + 1; j < 8; ++j) {
+            pool.enqueue(add, i, j);
+        }
     }
 
-    for (auto &&result: results)
-        std::cout << result.get() << '\n';
-    std::cout << std::endl;
+    auto future1 = pool.enqueue(add_return, 50, 60);
+    std::cout << future1.get() << std::endl;
+
+    pool.shutDown();
 
     return 0;
 }
