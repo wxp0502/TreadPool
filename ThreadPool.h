@@ -14,22 +14,42 @@
 #include <queue>
 
 class ThreadPool {
+
+private:
+    // synchronization
+    std::mutex queue_mutex;
+    std::condition_variable condition;
+    bool stop;
+
+    // keep track of threads
+    std::vector<std::thread> workers;
+    // the task queue
+    std::queue<std::function<void()>> tasks;
+
+
 public:
-    explicit ThreadPool(size_t thread_amount) : _stop(false) {
+    explicit ThreadPool(size_t thread_amount)
+            : stop(false) {
         for (size_t i = 0; i < thread_amount; ++i) {
-            _thread.emplace_back(
-                    [this] {
-                        while (!_stop) {
+            workers.emplace_back(
+                    [this, i] {
+                        while (true) {
                             std::function<void()> task;
+                            {   // avoid two threads try to take the same work at the same time
+                                std::unique_lock<std::mutex> lock(this->queue_mutex);
 
-                            std::unique_lock<std::mutex> lock(this->_mutex);
-                            this->_cv.wait(lock,
-                                           [this] { return !this->_tasks.empty(); });
-                            if (this->_tasks.empty())
-                                return;
-                            task = std::move(this->_tasks.front());
-                            this->_tasks.pop();
+                                this->condition.wait(lock,
+                                                     [this] {
+                                                         return this->stop || !tasks.empty();
+                                                     });
 
+                                if (this->stop && this->tasks.empty()) {
+                                    return;
+                                }
+
+                                task = std::move(this->tasks.front());
+                                this->tasks.pop();
+                            }
                             task();
                         }
                     }
@@ -40,38 +60,50 @@ public:
     template<class F, class... Args>
     auto enqueue(F &&f, Args &&... args)
     -> std::future<typename std::result_of<F(Args...)>::type> {
+
         using return_type = typename std::result_of<F(Args...)>::type;
-        auto task = std::make_shared<std::packaged_task<return_type()>>(
+
+        // create a std::packaged_task and just wrap again this packaged task_ptr inside a std::shared_ptr
+        auto task_ptr = std::make_shared<std::packaged_task<return_type()>>(
+                // creates a wrapper for F with the given Args.
                 std::bind(std::forward<F>(f), std::forward<Args>(args)...)
         );
-        std::future<return_type> res = task->get_future();
-        std::unique_lock<std::mutex> lock(_mutex);
-        if (_stop)
-            throw std::runtime_error("Thread has stopped");
-        _tasks.emplace([task]() { (*task)(); });
-        _cv.notify_one();
+        // the future of the packaged_task as the result
+        std::future<return_type> res = task_ptr->get_future();
+
+        {
+            // ensure only one work being pushed at the same time
+            std::unique_lock<std::mutex> lock(queue_mutex);
+
+            if (stop) {
+                throw std::runtime_error("Thread has stopped");
+            }
+
+            // a generic void function, considering different return types
+            // Wrap packaged task_ptr into void function, declaring this wrapper_func that will execute the bound function
+            std::function<void()> wrapper_func = [task_ptr]() {
+                (*task_ptr)();
+            };
+            tasks.emplace(wrapper_func);
+        }
+        // Wake up one thread
+        condition.notify_one();
+
         return res;
     }
 
+
     ~ThreadPool() {
-        std::unique_lock<std::mutex> lock(_mutex);
-        _stop = true;
-        _cv.notify_all();
-        for (auto &t: _thread)
-            t.join();
+        {
+            std::unique_lock<std::mutex> lock(queue_mutex);
+            stop = true;
+        }
+
+        condition.notify_all();
+        // join all threads
+        for (std::thread &worker: workers)
+            worker.join();
     }
-
-private:
-    // synchronization
-    std::mutex _mutex;
-    std::condition_variable _cv;
-    bool _stop;
-
-    // keep track of threads
-    std::vector<std::thread> _thread;
-    // the task queue
-    std::queue<std::function<void()>> _tasks;
-
 };
 
 
