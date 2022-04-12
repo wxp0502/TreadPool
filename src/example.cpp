@@ -1,7 +1,7 @@
 #include <iostream>
 #include <random>
 
-#include "ThreadPool.h"
+#include "../include/ThreadPool.h"
 
 void simulate_hard_computation() {
     std::this_thread::sleep_for(std::chrono::milliseconds(1000 + rand() % 2000));
