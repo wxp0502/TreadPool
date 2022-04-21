@@ -1,7 +1,3 @@
-//
-// Created by shitman on 2022/04/08.
-//
-
 #ifndef TREADPOOL_THREADPOOL_H
 #define TREADPOOL_THREADPOOL_H
 
